@@ -81,6 +81,34 @@
     }
     .choice-pill.selected { background: var(--tanza-orange); border-color: var(--tanza-orange); color: #fff; }
 
+    .repeater-item {
+      border: 1px solid var(--tanza-border); border-radius: 12px; padding: 16px;
+      margin-bottom: 14px; background: #fafafa;
+    }
+    .repeater-item-header {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;
+    }
+    .repeater-item-title { font-size: 13px; font-weight: 700; color: var(--tanza-orange); text-transform: uppercase; letter-spacing: .03em; }
+    .repeater-remove {
+      border: none; background: none; color: var(--tanza-grey); cursor: pointer;
+      font-size: 13px; text-decoration: underline; padding: 2px 4px;
+    }
+    .repeater-remove:hover { color: #E23744; }
+    .repeater-subfield { margin: 12px 0; }
+    .repeater-subfield label { display: block; font-size: 12.5px; font-weight: 600; margin-bottom: 5px; color: var(--tanza-dark); }
+    .repeater-subfield input[type=text], .repeater-subfield textarea {
+      width: 100%; border: 1px solid var(--tanza-border); border-radius: 8px;
+      padding: 8px 10px; font-size: 13.5px; font-family: inherit; background: #fff;
+    }
+    .repeater-subfield textarea { min-height: 56px; resize: vertical; }
+    .repeater-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .repeater-add-btn {
+      width: 100%; border: 2px dashed var(--tanza-border); border-radius: 12px;
+      background: #fff; color: var(--tanza-orange); font-weight: 700; font-size: 13.5px;
+      padding: 12px; cursor: pointer; transition: border-color .15s;
+    }
+    .repeater-add-btn:hover { border-color: var(--tanza-orange); background: #fff5f0; }
+
     .upload-box {
       border: 2px dashed var(--tanza-border); border-radius: 12px; padding: 18px;
       text-align: center; cursor: pointer; transition: border-color .15s; background: #fafafa;
@@ -204,7 +232,18 @@ var SECTIONS = [
   { key:'s2_attachment', type:'file', q:'Optional: attach a photo, floor plan, or document for this section.', help:'You can upload more than one type of file — photos, PDFs, or other documents all help train the AI. e.g. guest guidelines or age-requirement signage for Target Audience & Guest Profile.', accept:'image/*,.pdf,application/pdf' }
 ]},
 { title: 'Services & Offerings Catalog', fields: [
-  { key:'s3_offerings', type:'textarea', q:'List each distinct offering (one per line).', help:'Include: name | description | Indoor/Outdoor/Shaded/AC | duration | min-max guests | individual/group | energy level | adult price | child price | seasonal or year-round', required:true },
+  { key:'s3_offerings', type:'repeater', q:'List each distinct offering you provide.', help:'Add one card per offering — you can add as many as you need.', required:true, itemLabel:'Offering', subfields:[
+    { key:'name', type:'text', q:'Offering name' },
+    { key:'description', type:'textarea', q:'Description' },
+    { key:'setting', type:'radio', q:'Setting', options:['Indoor','Outdoor','Shaded','AC'] },
+    { key:'duration', type:'text', q:'Duration per session' },
+    { key:'group_size', type:'text', q:'Min–max guests per session' },
+    { key:'individual_group', type:'radio', q:'Individuals, groups, or both', options:['Individuals','Groups','Both'] },
+    { key:'energy_level', type:'radio', q:'Energy level', options:['High-adrenaline','Moderate','Relaxed'] },
+    { key:'adult_price', type:'text', q:'Adult price (EGP)' },
+    { key:'child_price', type:'text', q:'Child price (EGP)' },
+    { key:'seasonality', type:'radio', q:'Availability', options:['Year-round','Seasonal'] }
+  ] },
   { key:'s3_group_packages', type:'textarea', q:'Do you offer group or corporate packages? Describe package, min size, price.' },
   { key:'s3_group_discounts', type:'textarea', q:'Do you offer group discounts? At what size, and what percentage?' },
   { key:'s3_combos', type:'textarea', q:'Any combo deals or joint packages with other Tanza tenants?' },
@@ -304,6 +343,7 @@ function renderScreen() {
 
   s.fields.forEach(function(f) {
     var voiceCapable = f.type === 'text' || f.type === 'textarea' || f.type === 'radio' || f.type === 'checkbox' || f.type === 'voice';
+    // repeaters (structured multi-item lists) don't support the top-level voice toggle
     var inVoiceMode = voiceCapable && (voiceMode[f.key] || (f.type === 'voice' && voiceMode[f.key] !== false));
 
     html += '<div class="field" data-key="' + f.key + '">';
@@ -329,12 +369,15 @@ function renderScreen() {
       html += '</div>';
     } else if (f.type === 'file') {
       html += renderFileBox(f);
+    } else if (f.type === 'repeater') {
+      html += renderRepeater(f);
     }
     html += '</div>';
   });
 
   card.innerHTML = html;
   attachTextListeners(s);
+  attachRepeaterListeners(s);
   updateProgress();
   document.getElementById('formCard').insertAdjacentHTML('beforeend', navHtml());
   document.getElementById('backBtn').onclick = goBack;
@@ -411,6 +454,73 @@ function attachTextListeners(s) {
       var el = document.getElementById('in_' + f.key);
       if (el) el.addEventListener('input', function() { answers[f.key] = el.value; });
     }
+  });
+}
+
+// ---- Repeater (structured multi-item list, e.g. offerings) ----
+function renderRepeater(f) {
+  var items = Array.isArray(answers[f.key]) ? answers[f.key] : [];
+  var html = '<div id="rep_' + f.key + '">';
+  items.forEach(function(item, idx) {
+    html += '<div class="repeater-item" data-idx="' + idx + '">';
+    html += '<div class="repeater-item-header"><span class="repeater-item-title">' + esc(f.itemLabel || 'Item') + ' ' + (idx + 1) + '</span>';
+    html += '<button type="button" class="repeater-remove" onclick="removeRepeaterItem(\'' + f.key + '\',' + idx + ')">Remove</button></div>';
+    f.subfields.forEach(function(sf) {
+      var val = item[sf.key];
+      html += '<div class="repeater-subfield"><label>' + sf.q + '</label>';
+      if (sf.type === 'text') {
+        html += '<input type="text" data-rep-key="' + f.key + '" data-rep-idx="' + idx + '" data-rep-sub="' + sf.key + '" value="' + (esc(val) || '') + '">';
+      } else if (sf.type === 'textarea') {
+        html += '<textarea data-rep-key="' + f.key + '" data-rep-idx="' + idx + '" data-rep-sub="' + sf.key + '">' + (esc(val) || '') + '</textarea>';
+      } else if (sf.type === 'radio') {
+        html += '<div class="choice-row">';
+        sf.options.forEach(function(opt) {
+          var selected = val === opt;
+          html += '<div class="choice-pill' + (selected ? ' selected' : '') + '" onclick="setRepeaterSubfield(\'' + f.key + '\',' + idx + ',\'' + sf.key + '\',\'' + esc(opt) + '\',this)">' + opt + '</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  html += '<button type="button" class="repeater-add-btn" onclick="addRepeaterItem(\'' + f.key + '\')">+ Add another ' + esc((f.itemLabel || 'item').toLowerCase()) + '</button>';
+  return html;
+}
+
+function addRepeaterItem(key) {
+  if (!Array.isArray(answers[key])) answers[key] = [];
+  answers[key].push({});
+  renderScreen();
+}
+
+function removeRepeaterItem(key, idx) {
+  if (!Array.isArray(answers[key])) return;
+  answers[key].splice(idx, 1);
+  renderScreen();
+}
+
+function setRepeaterSubfield(key, idx, subKey, value, el) {
+  if (!Array.isArray(answers[key]) || !answers[key][idx]) return;
+  answers[key][idx][subKey] = value;
+  var row = el.parentElement;
+  Array.prototype.forEach.call(row.children, function(c) { c.classList.remove('selected'); });
+  el.classList.add('selected');
+}
+
+function attachRepeaterListeners(s) {
+  s.fields.forEach(function(f) {
+    if (f.type !== 'repeater') return;
+    var container = document.getElementById('rep_' + f.key);
+    if (!container) return;
+    container.querySelectorAll('input[data-rep-key], textarea[data-rep-key]').forEach(function(el) {
+      el.addEventListener('input', function() {
+        var idx = parseInt(el.getAttribute('data-rep-idx'), 10);
+        var subKey = el.getAttribute('data-rep-sub');
+        if (answers[f.key] && answers[f.key][idx]) answers[f.key][idx][subKey] = el.value;
+      });
+    });
   });
 }
 
@@ -541,6 +651,7 @@ function validateSection(s) {
     if (!f.required) continue;
     var v = answers[f.key];
     if (f.type === 'checkbox' && !voiceMode[f.key]) { if (!v || v.length===0) return f; }
+    else if (f.type === 'repeater') { if (!Array.isArray(v) || v.length === 0) return f; }
     else if (!v) return f;
   }
   return null;
