@@ -562,22 +562,24 @@ function renderFileBox(f) {
   return box;
 }
 
+var uploadSeq = 0;
+
 function fileChipsHtml(key, files) {
   if (!files) return '';
   var list = Array.isArray(files) ? files : [files];
-  return list.map(function(file, idx) { return fileChipHtml(key, idx, file); }).join('');
+  return list.map(function(file) { return fileChipHtml(key, file); }).join('');
 }
 
-function fileChipHtml(key, idx, file) {
+function fileChipHtml(key, file) {
   if (file.status === 'uploading') {
     return '<div class="file-chip uploading"><span class="chip-spinner"></span> ' + esc(file.name) + ' — uploading…</div>';
   }
   if (file.status === 'failed') {
     return '<div class="file-chip failed">&#9888; ' + esc(file.name) + ' — upload failed ' +
-      '<button onclick="retryFile(\'' + key + '\', ' + idx + ')">Retry</button> ' +
-      '<button onclick="clearFile(\'' + key + '\', ' + idx + ')">&times;</button></div>';
+      '<button onclick="retryFile(\'' + key + '\', ' + file._id + ')">Retry</button> ' +
+      '<button onclick="clearFile(\'' + key + '\', ' + file._id + ')">&times;</button></div>';
   }
-  return '<div class="file-chip">&#128206; ' + esc(file.name) + ' <button onclick="clearFile(\'' + key + '\', ' + idx + ')">&times;</button></div>';
+  return '<div class="file-chip">&#128206; ' + esc(file.name) + ' <button onclick="clearFile(\'' + key + '\', ' + file._id + ')">&times;</button></div>';
 }
 
 function refreshChips(key) {
@@ -585,35 +587,43 @@ function refreshChips(key) {
   if (el) el.innerHTML = fileChipsHtml(key, answers[key]);
 }
 
-function clearFile(key, idx) {
+function findFileEntry(key, id) {
+  var list = answers[key];
+  if (!Array.isArray(list)) return null;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i]._id === id) return list[i];
+  }
+  return null;
+}
+
+function clearFile(key, id) {
   if (Array.isArray(answers[key])) {
-    answers[key].splice(idx, 1);
+    answers[key] = answers[key].filter(function(item) { return item._id !== id; });
     if (answers[key].length === 0) delete answers[key];
-  } else {
-    delete answers[key];
   }
   refreshChips(key);
 }
 
-function retryFile(key, idx) {
-  var entry = answers[key] && answers[key][idx];
+function retryFile(key, id) {
+  var entry = findFileEntry(key, id);
   if (!entry || !entry._file) return;
-  uploadOneFile(key, idx, entry._file);
+  uploadOneFile(key, id, entry._file);
 }
 
 function handleFiles(key, fileList) {
   if (!fileList || !fileList.length) return;
   if (!Array.isArray(answers[key])) answers[key] = [];
   Array.prototype.forEach.call(fileList, function(file) {
-    var idx = answers[key].length;
-    answers[key].push({ name: file.name, status: 'uploading', _file: file });
+    var id = ++uploadSeq;
+    answers[key].push({ _id: id, name: file.name, status: 'uploading', _file: file });
     refreshChips(key);
-    uploadOneFile(key, idx, file);
+    uploadOneFile(key, id, file);
   });
 }
 
-function uploadOneFile(key, idx, file) {
-  var entry = answers[key][idx];
+function uploadOneFile(key, id, file) {
+  var entry = findFileEntry(key, id);
+  if (!entry) return;
   entry.status = 'uploading';
   pendingUploads++;
   refreshChips(key);
@@ -634,25 +644,27 @@ function uploadOneFile(key, idx, file) {
       .then(function(resp) { return resp.json(); })
       .then(function(res) {
         pendingUploads--;
-        if (res.ok) {
-          entry.status = 'done';
-          entry.url = res.url;
-          entry.name = res.name || entry.name;
+        var e = findFileEntry(key, id);
+        if (!e) return;
+        if (res.ok && typeof res.url === 'string' && res.url) {
+          e.status = 'done';
+          e.url = res.url;
+          e.name = res.name || e.name;
         } else {
-          entry.status = 'failed';
+          e.status = 'failed';
         }
         refreshChips(key);
       })
       .catch(function() {
         pendingUploads--;
-        entry.status = 'failed';
-        refreshChips(key);
+        var e = findFileEntry(key, id);
+        if (e) { e.status = 'failed'; refreshChips(key); }
       });
   };
   reader.onerror = function() {
     pendingUploads--;
-    entry.status = 'failed';
-    refreshChips(key);
+    var e = findFileEntry(key, id);
+    if (e) { e.status = 'failed'; refreshChips(key); }
   };
   reader.readAsDataURL(file);
 }
