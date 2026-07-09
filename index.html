@@ -124,6 +124,12 @@
     .file-chip button {
       border: none; background: none; color: #b8461e; cursor: pointer; font-weight: 700;
     }
+    .file-chip.uploading { background: #f0f0f2; border-color: var(--tanza-border); color: var(--tanza-grey); }
+    .file-chip.failed { background: #fdeceb; border-color: #f3b6ae; color: #c0392b; }
+    .file-chip .chip-spinner {
+      width: 11px; height: 11px; border-radius: 50%; border: 2px solid #d8d8dc;
+      border-top-color: var(--tanza-grey); animation: spin .7s linear infinite; flex-shrink: 0;
+    }
 
     .voice-box { display: flex; align-items: center; gap: 12px; }
     .mic-btn {
@@ -526,6 +532,10 @@ function attachRepeaterListeners(s) {
 }
 
 // ---- File upload (image / PDF, supports multiple files) ----
+// Each file is uploaded to Drive as soon as it's picked (with its own
+// progress chip); answers[key] ends up as an array of { name, url, status }
+// where status is 'uploading' | 'done' | 'failed'. Only the small { name,
+// url } pairs are sent in the final submit payload — never raw base64.
 function renderFileBox(f) {
   var existing = answers[f.key];
   var acceptsPdf = f.accept && f.accept.indexOf('pdf') !== -1;
@@ -555,11 +565,24 @@ function renderFileBox(f) {
 function fileChipsHtml(key, files) {
   if (!files) return '';
   var list = Array.isArray(files) ? files : [files];
-  return list.map(function(file, idx) { return fileChipHtml(key, idx, file.name); }).join('');
+  return list.map(function(file, idx) { return fileChipHtml(key, idx, file); }).join('');
 }
 
-function fileChipHtml(key, idx, name) {
-  return '<div class="file-chip">&#128206; ' + esc(name) + ' <button onclick="clearFile(\'' + key + '\', ' + idx + ')">&times;</button></div>';
+function fileChipHtml(key, idx, file) {
+  if (file.status === 'uploading') {
+    return '<div class="file-chip uploading"><span class="chip-spinner"></span> ' + esc(file.name) + ' — uploading…</div>';
+  }
+  if (file.status === 'failed') {
+    return '<div class="file-chip failed">&#9888; ' + esc(file.name) + ' — upload failed ' +
+      '<button onclick="retryFile(\'' + key + '\', ' + idx + ')">Retry</button> ' +
+      '<button onclick="clearFile(\'' + key + '\', ' + idx + ')">&times;</button></div>';
+  }
+  return '<div class="file-chip">&#128206; ' + esc(file.name) + ' <button onclick="clearFile(\'' + key + '\', ' + idx + ')">&times;</button></div>';
+}
+
+function refreshChips(key) {
+  var el = document.getElementById('chip_' + key);
+  if (el) el.innerHTML = fileChipsHtml(key, answers[key]);
 }
 
 function clearFile(key, idx) {
@@ -569,26 +592,69 @@ function clearFile(key, idx) {
   } else {
     delete answers[key];
   }
-  document.getElementById('chip_' + key).innerHTML = fileChipsHtml(key, answers[key]);
+  refreshChips(key);
+}
+
+function retryFile(key, idx) {
+  var entry = answers[key] && answers[key][idx];
+  if (!entry || !entry._file) return;
+  uploadOneFile(key, idx, entry._file);
 }
 
 function handleFiles(key, fileList) {
   if (!fileList || !fileList.length) return;
   if (!Array.isArray(answers[key])) answers[key] = [];
   Array.prototype.forEach.call(fileList, function(file) {
-    pendingUploads++;
-    var reader = new FileReader();
-    reader.onload = function() {
-      var base64 = reader.result.split(',')[1];
-      answers[key].push({ name: file.name, mimeType: file.type || 'application/octet-stream', base64: base64 });
-      document.getElementById('chip_' + key).innerHTML = fileChipsHtml(key, answers[key]);
-      pendingUploads--;
-    };
-    reader.onerror = function() {
-      pendingUploads--;
-    };
-    reader.readAsDataURL(file);
+    var idx = answers[key].length;
+    answers[key].push({ name: file.name, status: 'uploading', _file: file });
+    refreshChips(key);
+    uploadOneFile(key, idx, file);
   });
+}
+
+function uploadOneFile(key, idx, file) {
+  var entry = answers[key][idx];
+  entry.status = 'uploading';
+  pendingUploads++;
+  refreshChips(key);
+
+  var reader = new FileReader();
+  reader.onload = function() {
+    var base64 = reader.result.split(',')[1];
+    fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'uploadFile',
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        base64: base64
+      })
+    })
+      .then(function(resp) { return resp.json(); })
+      .then(function(res) {
+        pendingUploads--;
+        if (res.ok) {
+          entry.status = 'done';
+          entry.url = res.url;
+          entry.name = res.name || entry.name;
+        } else {
+          entry.status = 'failed';
+        }
+        refreshChips(key);
+      })
+      .catch(function() {
+        pendingUploads--;
+        entry.status = 'failed';
+        refreshChips(key);
+      });
+  };
+  reader.onerror = function() {
+    pendingUploads--;
+    entry.status = 'failed';
+    refreshChips(key);
+  };
+  reader.readAsDataURL(file);
 }
 
 // ---- Voice recording (per-question toggle between typing and speaking) ----
@@ -706,11 +772,26 @@ function goBack() {
   window.scrollTo(0,0);
 }
 
+function hasFailedUpload() {
+  return Object.keys(answers).some(function(key) {
+    var v = answers[key];
+    return Array.isArray(v) && v.some(function(item) { return item && item.status === 'failed'; });
+  });
+}
+
 function submitAll() {
   var card = document.getElementById('formCard');
   var nextBtn = document.getElementById('nextBtn');
   nextBtn.disabled = true;
   document.getElementById('backBtn').disabled = true;
+
+  if (hasFailedUpload()) {
+    nextBtn.disabled = false;
+    document.getElementById('backBtn').disabled = false;
+    nextBtn.innerHTML = 'Submit';
+    alert('One or more file uploads failed. Please retry or remove them before submitting.');
+    return;
+  }
 
   if (pendingUploads > 0) {
     nextBtn.innerHTML = '<span class="spinner"></span> Finishing file uploads...';
@@ -720,11 +801,21 @@ function submitAll() {
 
   nextBtn.innerHTML = '<span class="spinner"></span> Submitting...';
 
+  var payload = {};
+  Object.keys(answers).forEach(function(key) {
+    var v = answers[key];
+    if (Array.isArray(v) && v.length > 0 && v[0] && typeof v[0] === 'object' && ('url' in v[0] || 'status' in v[0])) {
+      payload[key] = v.map(function(item) { return { name: item.name, url: item.url }; });
+    } else {
+      payload[key] = v;
+    }
+  });
+
   fetch(APPS_SCRIPT_URL, {
     method: 'POST',
     // text/plain avoids a CORS preflight request, which Apps Script Web Apps don't support
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(answers)
+    body: JSON.stringify(payload)
   })
     .then(function(resp) { return resp.json(); })
     .then(function(res) {
