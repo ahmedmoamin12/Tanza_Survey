@@ -329,6 +329,7 @@ var SECTIONS = [
 var answers = {};
 var voiceMode = {};
 var current = 0;
+var pendingUploads = 0;
 var showWelcome = true;
 var mediaRecorder, audioChunks = [], activeStream;
 
@@ -575,11 +576,16 @@ function handleFiles(key, fileList) {
   if (!fileList || !fileList.length) return;
   if (!Array.isArray(answers[key])) answers[key] = [];
   Array.prototype.forEach.call(fileList, function(file) {
+    pendingUploads++;
     var reader = new FileReader();
     reader.onload = function() {
       var base64 = reader.result.split(',')[1];
       answers[key].push({ name: file.name, mimeType: file.type || 'application/octet-stream', base64: base64 });
       document.getElementById('chip_' + key).innerHTML = fileChipsHtml(key, answers[key]);
+      pendingUploads--;
+    };
+    reader.onerror = function() {
+      pendingUploads--;
     };
     reader.readAsDataURL(file);
   });
@@ -705,6 +711,13 @@ function submitAll() {
   var nextBtn = document.getElementById('nextBtn');
   nextBtn.disabled = true;
   document.getElementById('backBtn').disabled = true;
+
+  if (pendingUploads > 0) {
+    nextBtn.innerHTML = '<span class="spinner"></span> Finishing file uploads...';
+    setTimeout(submitAll, 200);
+    return;
+  }
+
   nextBtn.innerHTML = '<span class="spinner"></span> Submitting...';
 
   fetch(APPS_SCRIPT_URL, {
