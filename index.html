@@ -524,51 +524,65 @@ function attachRepeaterListeners(s) {
   });
 }
 
-// ---- File upload (image / PDF) ----
+// ---- File upload (image / PDF, supports multiple files) ----
 function renderFileBox(f) {
   var existing = answers[f.key];
   var acceptsPdf = f.accept && f.accept.indexOf('pdf') !== -1;
   var acceptsImage = !f.accept || f.accept.indexOf('image') !== -1;
   var hint = acceptsPdf && acceptsImage ? 'Image or PDF' : (acceptsPdf ? 'PDF' : 'Image');
   var box = '<div class="upload-box" id="box_' + f.key + '" onclick="document.getElementById(\'file_' + f.key + '\').click()">' +
-    '<div>&#128193; Click to choose a file, or drag it here</div>' +
-    '<div class="upload-hint">' + hint + ' — up to ~10MB</div>' +
-    '<input type="file" id="file_' + f.key + '" accept="' + (f.accept||'') + '">' +
+    '<div>&#128193; Click to choose file(s), or drag them here</div>' +
+    '<div class="upload-hint">' + hint + ' — up to ~10MB each</div>' +
+    '<input type="file" id="file_' + f.key + '" accept="' + (f.accept||'') + '" multiple>' +
     '</div>' +
-    '<div id="chip_' + f.key + '">' + (existing ? fileChipHtml(f.key, existing.name) : '') + '</div>';
+    '<div id="chip_' + f.key + '">' + fileChipsHtml(f.key, existing) + '</div>';
   setTimeout(function() {
     var input = document.getElementById('file_' + f.key);
     var dropBox = document.getElementById('box_' + f.key);
-    input.addEventListener('change', function(e) { handleFile(f.key, e.target.files[0]); });
+    input.addEventListener('change', function(e) { handleFiles(f.key, e.target.files); });
     ['dragover','dragleave','drop'].forEach(function(evt) {
       dropBox.addEventListener(evt, function(e) {
         e.preventDefault();
         dropBox.classList.toggle('drag', evt === 'dragover');
-        if (evt === 'drop' && e.dataTransfer.files[0]) handleFile(f.key, e.dataTransfer.files[0]);
+        if (evt === 'drop' && e.dataTransfer.files.length) handleFiles(f.key, e.dataTransfer.files);
       });
     });
   }, 0);
   return box;
 }
 
-function fileChipHtml(key, name) {
-  return '<div class="file-chip">&#128206; ' + esc(name) + ' <button onclick="clearFile(\'' + key + '\')">&times;</button></div>';
+function fileChipsHtml(key, files) {
+  if (!files) return '';
+  var list = Array.isArray(files) ? files : [files];
+  return list.map(function(file, idx) { return fileChipHtml(key, idx, file.name); }).join('');
 }
 
-function clearFile(key) {
-  delete answers[key];
-  document.getElementById('chip_' + key).innerHTML = '';
+function fileChipHtml(key, idx, name) {
+  return '<div class="file-chip">&#128206; ' + esc(name) + ' <button onclick="clearFile(\'' + key + '\', ' + idx + ')">&times;</button></div>';
 }
 
-function handleFile(key, file) {
-  if (!file) return;
-  var reader = new FileReader();
-  reader.onload = function() {
-    var base64 = reader.result.split(',')[1];
-    answers[key] = { name: file.name, mimeType: file.type || 'application/octet-stream', base64: base64 };
-    document.getElementById('chip_' + key).innerHTML = fileChipHtml(key, file.name);
-  };
-  reader.readAsDataURL(file);
+function clearFile(key, idx) {
+  if (Array.isArray(answers[key])) {
+    answers[key].splice(idx, 1);
+    if (answers[key].length === 0) delete answers[key];
+  } else {
+    delete answers[key];
+  }
+  document.getElementById('chip_' + key).innerHTML = fileChipsHtml(key, answers[key]);
+}
+
+function handleFiles(key, fileList) {
+  if (!fileList || !fileList.length) return;
+  if (!Array.isArray(answers[key])) answers[key] = [];
+  Array.prototype.forEach.call(fileList, function(file) {
+    var reader = new FileReader();
+    reader.onload = function() {
+      var base64 = reader.result.split(',')[1];
+      answers[key].push({ name: file.name, mimeType: file.type || 'application/octet-stream', base64: base64 });
+      document.getElementById('chip_' + key).innerHTML = fileChipsHtml(key, answers[key]);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 // ---- Voice recording (per-question toggle between typing and speaking) ----

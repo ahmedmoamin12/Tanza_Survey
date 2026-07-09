@@ -1,7 +1,7 @@
 /**
  * Single source of truth for the survey schema, shared by the backend
  * (Code.gs, for sheet columns) and referenced by Index.html's JS (SECTIONS).
- * type: 'text' | 'textarea' | 'radio' | 'checkbox' | 'file' | 'voice'
+ * type: 'text' | 'textarea' | 'radio' | 'checkbox' | 'file' | 'voice' | 'repeater'
  */
 var FIELD_ORDER = [
   // Section 1: Venue Identity
@@ -27,7 +27,7 @@ var FIELD_ORDER = [
   { key: 's2_attachment', label: 'Attachment (Target Audience & Guest Profile)', type: 'file' },
 
   // Section 3: Services & Offerings Catalog
-  { key: 's3_offerings', label: 'Offerings catalog', type: 'textarea' },
+  { key: 's3_offerings', label: 'Offerings catalog', type: 'repeater' },
   { key: 's3_group_packages', label: 'Group / corporate packages', type: 'textarea' },
   { key: 's3_group_discounts', label: 'Group discounts', type: 'textarea' },
   { key: 's3_combos', label: 'Combo deals / joint packages', type: 'textarea' },

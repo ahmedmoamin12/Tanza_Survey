@@ -80,6 +80,20 @@ function saveUpload_(parentFolder, fieldKey, fileObj) {
 }
 
 /**
+ * Flattens a repeater field's array of { subKey: value } items into a
+ * readable multi-line block for a single Sheet cell.
+ */
+function formatRepeater_(items) {
+  if (!Array.isArray(items) || items.length === 0) return '';
+  return items.map(function (item, idx) {
+    var lines = Object.keys(item).map(function (k) {
+      return k + ': ' + (item[k] || '');
+    });
+    return '#' + (idx + 1) + ' — ' + lines.join(' | ');
+  }).join('\n');
+}
+
+/**
  * Writes one survey submission to the Sheet. Called from doPost().
  * `data` is a flat object of { fieldKey: value } for text/choice fields,
  * plus { fieldKey: {name, mimeType, base64} } for file/voice fields.
@@ -108,8 +122,13 @@ function submitSurvey(data) {
     fieldOrder.forEach(function (f) {
       var val = data[f.key];
       var isUpload = val && typeof val === 'object' && !Array.isArray(val) && typeof val.base64 === 'string';
+      var isUploadList = Array.isArray(val) && val.length > 0 && val[0] && typeof val[0] === 'object' && typeof val[0].base64 === 'string';
       if (isUpload) {
         row.push(saveUpload_(subFolder, f.key, val));
+      } else if (isUploadList) {
+        row.push(val.map(function (fileObj) { return saveUpload_(subFolder, f.key, fileObj); }).join('\n'));
+      } else if (f.type === 'repeater') {
+        row.push(formatRepeater_(val));
       } else if (Array.isArray(val)) {
         row.push(val.join(', '));
       } else {
