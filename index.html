@@ -216,9 +216,9 @@ var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwSjY3zee2z38Cz1F
 // ---- Schema: mirrors Fields.gs. Keep both in sync if questions change. ----
 var SECTIONS = [
 { title: 'Venue Identity', fields: [
-  { key:'s1_name', type:'text', q:'What is the full official name of your venue?', required:true },
+  { key:'s1_name', type:'text', q:'What is the full official name of your venue?' },
   { key:'s1_aka', type:'text', q:'Any alternative names, abbreviations, or nicknames guests use?' },
-  { key:'s1_pitch', type:'textarea', q:'In one sentence, describe what you offer to a guest who has never heard of you.', required:true },
+  { key:'s1_pitch', type:'textarea', q:'In one sentence, describe what you offer to a guest who has never heard of you.' },
   { key:'s1_desc', type:'textarea', q:'In 2–3 sentences, describe your experience in more detail.' },
   { key:'s1_unique', type:'textarea', q:'What are the 3 things that make your experience unique within Tanza?' },
   { key:'s1_type', type:'checkbox', q:'What type of experience are you?', options:['Adventure','Sports','Edutainment','F&B','Wellness','Retail','Other'] },
@@ -238,7 +238,7 @@ var SECTIONS = [
   { key:'s2_attachment', type:'file', q:'Optional: attach a photo, floor plan, or document for this section.', help:'You can upload more than one type of file — photos, PDFs, or other documents all help train the AI. e.g. guest guidelines or age-requirement signage for Target Audience & Guest Profile.', accept:'image/*,.pdf,application/pdf' }
 ]},
 { title: 'Services & Offerings Catalog', fields: [
-  { key:'s3_offerings', type:'repeater', q:'List each distinct offering you provide.', help:'Add one card per offering — you can add as many as you need.', required:true, itemLabel:'Offering', subfields:[
+  { key:'s3_offerings', type:'repeater', q:'List each distinct offering you provide.', help:'Add one card per offering — you can add as many as you need.', itemLabel:'Offering', subfields:[
     { key:'name', type:'text', q:'Offering name' },
     { key:'description', type:'textarea', q:'Description' },
     { key:'setting', type:'radio', q:'Setting', options:['Indoor','Outdoor','Shaded','AC'] },
@@ -284,7 +284,7 @@ var SECTIONS = [
   { key:'s4_attachment', type:'file', q:'Optional: attach a photo, floor plan, or document for this section.', help:'You can upload more than one type of file — photos, PDFs, or other documents all help train the AI. e.g. a booking policy sheet or cancellation terms PDF for Booking & Sales.', accept:'image/*,.pdf,application/pdf' }
 ]},
 { title: 'Location & Operations', fields: [
-  { key:'s5_hours', type:'textarea', q:'What are your operating hours? (list per day of week)', required:true },
+  { key:'s5_hours', type:'textarea', q:'What are your operating hours? (list per day of week)' },
   { key:'s5_holiday_hours', type:'textarea', q:'Are hours different on public holidays or during Ramadan?' },
   { key:'s5_access_point', type:'text', q:'Best access point/entrance from the main Tanza gate?' },
   { key:'s5_peak_hours', type:'text', q:'What are your peak hours or peak days?' },
@@ -308,7 +308,7 @@ var SECTIONS = [
   { key:'s6_attachment', type:'file', q:'Optional: attach a photo, floor plan, or document for this section.', help:'You can upload more than one type of file — photos, PDFs, or other documents all help train the AI. e.g. your waiver/consent form PDF for Guest Preparation & Policies.', accept:'image/*,.pdf,application/pdf' }
 ]},
 { title: 'What the AI Should Know', fields: [
-  { key:'s7_faq', type:'voice', q:'What are the 5 most common questions your staff gets asked by guests?', help:"Becomes the core of the AI's FAQ layer. Tap the mic to record, or type your answer.", required:true },
+  { key:'s7_faq', type:'voice', q:'What are the 5 most common questions your staff gets asked by guests?', help:"Becomes the core of the AI's FAQ layer. Tap the mic to record, or type your answer." },
   { key:'s7_disappoint', type:'voice', q:'What is the single most common reason a guest leaves disappointed?', help:'Teaches the AI what not to over-promise. Tap the mic to record, or type your answer.' },
   { key:'s7_not_included', type:'textarea', q:'What does your experience NOT include that guests sometimes assume it does?' },
   { key:'s7_donotshare', type:'textarea', q:'Any information the AI should NOT share, promote, or reference?' },
@@ -316,14 +316,14 @@ var SECTIONS = [
 ]},
 { title: 'Media & Content Assets', fields: [
   { key:'s8_logo', type:'file', q:'Upload your logo file.', help:'SVG or high-res PNG preferred.', accept:'image/*' },
-  { key:'s8_photos', type:'file', q:'Upload a photo (or a few, one at a time) of your experience.', accept:'image/*' },
+  { key:'s8_photos', type:'file', q:'Upload photos of your establishment.', help:'You can select and upload multiple photos at once.', accept:'image/*' },
   { key:'s8_pricelist', type:'file', q:'Upload your price list, menu, or brochure.', help:'PDF preferred.', accept:'.pdf,application/pdf' },
   { key:'s8_website', type:'text', q:'Do you have a website? If yes, URL.' },
   { key:'s8_social', type:'textarea', q:'Social media handles (Instagram, TikTok, Facebook).' },
   { key:'s8_attachment', type:'file', q:'Optional: attach any other file for this section.', help:'You can upload more than one type of file — photos, PDFs, or other documents all help train the AI. Anything not covered above — extra photos, a video link screenshot, or another document.', accept:'image/*,.pdf,application/pdf' }
 ]},
 { title: 'Contacts & Integration', fields: [
-  { key:'s9_primary_contact', type:'textarea', q:'Primary contact for guest-facing information.', help:'Name / Role / Phone / Email', required:true },
+  { key:'s9_primary_contact', type:'textarea', q:'Primary contact for guest-facing information.', help:'Name / Role / Phone / Email' },
   { key:'s9_update_contact', type:'textarea', q:'Who should we contact when pricing/hours/services change?', help:'Name / Role / Phone / WhatsApp' },
   { key:'s9_escalation_contact', type:'textarea', q:'On-ground contact the AI should escalate to for unresolved guest issues.', help:'Name / Role / WhatsApp number' },
   { key:'s9_tech_contact', type:'textarea', q:'Technical contact for your booking/ticketing system integration.', help:'Name / Role / Email' },
@@ -563,6 +563,22 @@ function renderFileBox(f) {
 }
 
 var uploadSeq = 0;
+var uploadQueue = [];
+var activeUploadCount = 0;
+var MAX_CONCURRENT_UPLOADS = 2;
+
+function enqueueUpload(key, id, file) {
+  uploadQueue.push({ key: key, id: id, file: file });
+  runUploadQueue();
+}
+
+function runUploadQueue() {
+  while (activeUploadCount < MAX_CONCURRENT_UPLOADS && uploadQueue.length > 0) {
+    var job = uploadQueue.shift();
+    activeUploadCount++;
+    startUpload(job.key, job.id, job.file);
+  }
+}
 
 function fileChipsHtml(key, files) {
   if (!files) return '';
@@ -607,7 +623,9 @@ function clearFile(key, id) {
 function retryFile(key, id) {
   var entry = findFileEntry(key, id);
   if (!entry || !entry._file) return;
-  uploadOneFile(key, id, entry._file);
+  entry.status = 'uploading';
+  refreshChips(key);
+  enqueueUpload(key, id, entry._file);
 }
 
 function handleFiles(key, fileList) {
@@ -617,13 +635,19 @@ function handleFiles(key, fileList) {
     var id = ++uploadSeq;
     answers[key].push({ _id: id, name: file.name, status: 'uploading', _file: file });
     refreshChips(key);
-    uploadOneFile(key, id, file);
+    enqueueUpload(key, id, file);
   });
 }
 
-function uploadOneFile(key, id, file) {
+function finishUpload(key, id) {
+  activeUploadCount--;
+  pendingUploads--;
+  runUploadQueue();
+}
+
+function startUpload(key, id, file) {
   var entry = findFileEntry(key, id);
-  if (!entry) return;
+  if (!entry) { finishUpload(key, id); return; }
   entry.status = 'uploading';
   pendingUploads++;
   refreshChips(key);
@@ -643,7 +667,7 @@ function uploadOneFile(key, id, file) {
     })
       .then(function(resp) { return resp.json(); })
       .then(function(res) {
-        pendingUploads--;
+        finishUpload(key, id);
         var e = findFileEntry(key, id);
         if (!e) return;
         if (res.ok && typeof res.url === 'string' && res.url) {
@@ -656,13 +680,13 @@ function uploadOneFile(key, id, file) {
         refreshChips(key);
       })
       .catch(function() {
-        pendingUploads--;
+        finishUpload(key, id);
         var e = findFileEntry(key, id);
         if (e) { e.status = 'failed'; refreshChips(key); }
       });
   };
   reader.onerror = function() {
-    pendingUploads--;
+    finishUpload(key, id);
     var e = findFileEntry(key, id);
     if (e) { e.status = 'failed'; refreshChips(key); }
   };
